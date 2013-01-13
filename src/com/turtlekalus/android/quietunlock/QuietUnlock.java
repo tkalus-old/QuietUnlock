@@ -29,6 +29,7 @@ import android.os.Message;
 import android.os.RemoteException;
 import android.util.Log;
 import android.view.KeyEvent;
+import android.view.Window;
 import android.widget.Button;
 import android.widget.Toast;
 import java.util.ArrayList;
@@ -38,6 +39,8 @@ import com.turtlekalus.android.quietunlock.R;
 public class QuietUnlock extends Activity
 {
     private final String TAG = "QuietUnlock";
+    private final static int SELECT_SILENT  = 0;
+    private final static int SELECT_VIBRATE = 1;
 
     protected static boolean isSilent;
     private static int mRestoreRingerMode;
@@ -50,6 +53,7 @@ public class QuietUnlock extends Activity
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        this.requestWindowFeature(Window.FEATURE_NO_TITLE);
         setContentView(R.layout.main);
         isSilent = QuietUnlockService.mStartSilent;
         this.service = new ServiceManager(this, QuietUnlockService.class, new Handler() {
@@ -84,15 +88,20 @@ public class QuietUnlock extends Activity
         QuietUnlockDialog.newInstance(R.string.app_name).show(getFragmentManager(), "dialog");
     }
 
-    // Hook function called on "Silent" checkbox toggle
-    protected void doUpdateVibeSilent(boolean silent) {
-        isSilent = silent; // Save choice to class variable
-        if(isSilent) {
-            Log.d(TAG,"Sending Silent mode");
-            sendMessageToService(QuietUnlockService.MSG_SET_RING, QuietUnlockService.RING_SILENT, 0);
-        } else {
-            Log.d(TAG,"Sending Vibrate mode");
-            sendMessageToService(QuietUnlockService.MSG_SET_RING, QuietUnlockService.RING_VIBRATE, 0);
+    protected void doUpdateSilentVibe(int which) {
+        switch(which) {
+            case SELECT_SILENT:
+                Log.d(TAG,"Sending Silent mode");
+                sendMessageToService(QuietUnlockService.MSG_SET_RING, QuietUnlockService.RING_SILENT, 0);
+                break;
+            case SELECT_VIBRATE:
+                Log.d(TAG,"Sending Vibrate mode");
+                sendMessageToService(QuietUnlockService.MSG_SET_RING, QuietUnlockService.RING_VIBRATE, 0);
+                break;
+            default:
+                Log.e(TAG,"Unknown Selection");
+                doCancel();
+                break;
         }
     }
 
@@ -141,16 +150,20 @@ public class QuietUnlock extends Activity
         @Override
         public Dialog onCreateDialog(Bundle savedInstanceState) {
             int title = getArguments().getInt("title");
-            boolean checkedItems[] = { isSilent };
+            // Build up Radio Button list.
+            CharSequence[] items = {"",""};
+            items[SELECT_SILENT] = this.getString(R.string.silent);
+            items[SELECT_VIBRATE] = this.getString(R.string.vibrate);
+            int checkedItem = isSilent ? SELECT_SILENT : SELECT_VIBRATE;
             AlertDialog dialog = new AlertDialog.Builder(getActivity())
                 // Dialog Title "Quiet Unlock"; set in the res/xml
                 .setTitle(title)
-                // "Silent" Checkbox
-                .setMultiChoiceItems(R.array.silent, checkedItems,
-                        new DialogInterface.OnMultiChoiceClickListener() {
+                // "Silent" / "Vibrate" Radio Buttons
+                .setSingleChoiceItems(items, checkedItem,
+                        new DialogInterface.OnClickListener() {
                             @Override
-                    public void onClick(DialogInterface dialog, int which, boolean isChecked) {
-                        ((QuietUnlock)getActivity()).doUpdateVibeSilent(isChecked);
+                    public void onClick(DialogInterface dialog, int which) {
+                        ((QuietUnlock)getActivity()).doUpdateSilentVibe(which);
                     }})
                 // "OK" Button
                 .setPositiveButton(R.string.alert_dialog_ok,

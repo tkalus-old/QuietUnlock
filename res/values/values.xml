@@ -5,7 +5,5 @@
     <string name="alert_dialog_cancel">Cancel</string>
     <string name="show">Show</string>
     <string name="silent">Silent</string>
-    <string-array name="silent">
-        <item>Silent</item>
-    </string-array>
+    <string name="vibrate">Vibrate</string>
 </resources>
