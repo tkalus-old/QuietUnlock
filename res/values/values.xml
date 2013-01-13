@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Quiet Unlock</string>
+    <string name="alert_dialog_ok">OK</string>
+    <string name="alert_dialog_cancel">Cancel</string>
+    <string name="show">Show</string>
+    <string name="silent">Silent</string>
+    <string-array name="silent">
+        <item>Silent</item>
+    </string-array>
+</resources>
