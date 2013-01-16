@@ -47,9 +47,8 @@ public class QuietUnlock extends Activity
     private final static int SELECT_SILENT  = 0;
     private final static int SELECT_VIBRATE = 1;
 
-    protected static boolean isSilent;
     private static int mRestoreRingerMode;
-    private ServiceManager service;
+    private ServiceManager mServiceManager;
 
     // Main enterance into Program/Activity.
     // App hasthe effect of a Dialog Box floating over the Home Screen.
@@ -60,17 +59,19 @@ public class QuietUnlock extends Activity
         super.onCreate(savedInstanceState);
         this.requestWindowFeature(Window.FEATURE_NO_TITLE);
         setContentView(R.layout.main);
-        isSilent = QuietUnlockService.mStartSilent;
-        this.service = new ServiceManager(this, QuietUnlockService.class, new Handler() {
+        // Get default Silent/Vibe setting from Service
+        // TODO Should be user-config'able
+        // Start Service Manager for QuietUnlockService
+        this.mServiceManager = new ServiceManager(this, QuietUnlockService.class, new Handler() {
             @Override
             public void handleMessage(Message msg) {
                 // Non-Op
-                Toast.makeText(getBaseContext(), "Service Initialized...", Toast.LENGTH_SHORT).show();
-                sendMessageToService(QuietUnlockService.MSG_INIT, 0, 0);
                 super.handleMessage(msg);
             }
         });
-        service.start();
+        // Start QuietUnlockService
+        mServiceManager.start();
+        // Spin up GUI
         showDialog();
     }
 
@@ -78,7 +79,7 @@ public class QuietUnlock extends Activity
     @Override
     public void onDestroy() {
         super.onDestroy();
-        service.unbind();
+        mServiceManager.unbind();
     }
 
     // When App loses focus unintentionally (E.G. Home Key press),
@@ -125,8 +126,8 @@ public class QuietUnlock extends Activity
 
     private void sendMessageToService(int command, int arg1, int arg2) {
         try {
-            if(service.isRunning()) {
-                service.send(Message.obtain(null, command, arg1, arg2, this));
+            if(mServiceManager.isRunning()) {
+                mServiceManager.send(Message.obtain(null, command, arg1, arg2, this));
             } else {
                 Log.d(TAG, "Service not running, skippig send");
             }
@@ -140,7 +141,7 @@ public class QuietUnlock extends Activity
         CharSequence[] items = {"",""};
         items[SELECT_SILENT] = this.getString(R.string.select_silent);
         items[SELECT_VIBRATE] = this.getString(R.string.select_vibrate);
-        int checkedItem = isSilent ? SELECT_SILENT : SELECT_VIBRATE;
+        int checkedItem = QuietUnlockService.mIsSilent ? SELECT_SILENT : SELECT_VIBRATE;
         AlertDialog.Builder alertDialogBuilder;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.ICE_CREAM_SANDWICH) {
             alertDialogBuilder = new AlertDialog.Builder(this, AlertDialog.THEME_DEVICE_DEFAULT_DARK);

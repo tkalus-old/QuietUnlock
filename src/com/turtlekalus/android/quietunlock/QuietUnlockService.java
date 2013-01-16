@@ -48,8 +48,8 @@ import com.philippheckel.service.AbstractService;
 public class QuietUnlockService extends AbstractService {
     private static final String TAG = "QuietUnlockService";
 
-    private static DevicePolicyManager devicePolicyManager;
-    private static ComponentName adminComponent;
+    private static DevicePolicyManager mDevicePolicyManager = null;
+    private static ComponentName mAdminComponent = null;
 
     public static final int REQUEST_CODE_ENABLE_ADMIN = 1;
 
@@ -62,11 +62,11 @@ public class QuietUnlockService extends AbstractService {
     public static final int MSG_LOCK     = 3;
     public static final int MSG_CANCEL   = 4;
 
-	public static final boolean mStartSilent = false;
+	private static final boolean mStartSilent = false;
+	public static boolean mIsSilent = mStartSilent;
 
-    private static Intent QuietUnlockServiceIntent;
-	private BroadcastReceiver ringerReceiver, unlockReceiver;
-	private IntentFilter ringerFilter, unlockFilter;
+	private BroadcastReceiver mBroadcastReceiver;
+	private IntentFilter mIntentFilter;
 
 	private static boolean mServiceActive;
     private static int     mRestoreRingerMode;
@@ -75,11 +75,11 @@ public class QuietUnlockService extends AbstractService {
     public void onStartService() {
         mServiceActive = false;
 
-        adminComponent = new ComponentName(this, DarClass.class);
-        devicePolicyManager = (DevicePolicyManager)getSystemService(Context.DEVICE_POLICY_SERVICE);
+        mAdminComponent = new ComponentName(this, DarClass.class);
+        mDevicePolicyManager = (DevicePolicyManager)getSystemService(Context.DEVICE_POLICY_SERVICE);
         mRestoreRingerMode = ((AudioManager)getSystemService(Context.AUDIO_SERVICE)).getRingerMode();
 
-        unlockReceiver = new BroadcastReceiver() {
+        mBroadcastReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
                 // Handle User Unlocking Device
@@ -97,13 +97,13 @@ public class QuietUnlockService extends AbstractService {
             }
         };
 
-        unlockFilter = new IntentFilter();
+        mIntentFilter = new IntentFilter();
         // This Intent is Broadcast when a User Unlocks their device
-        unlockFilter.addAction(Intent.ACTION_USER_PRESENT);
+        mIntentFilter.addAction(Intent.ACTION_USER_PRESENT); // Device Unlock
         // This Intent is Broadcast when the Ringer Mode changes
         // Want to catch case where user changes Ringer Mode from Lock Screen
-        unlockFilter.addAction(AudioManager.RINGER_MODE_CHANGED_ACTION);
-        registerReceiver(unlockReceiver, unlockFilter);
+        mIntentFilter.addAction(AudioManager.RINGER_MODE_CHANGED_ACTION);
+        registerReceiver(mBroadcastReceiver, mIntentFilter);
 
         setRinger(mStartSilent ? RING_SILENT : RING_VIBRATE);
         Log.d(TAG, "Service Started.");
@@ -113,7 +113,7 @@ public class QuietUnlockService extends AbstractService {
     public void onStopService() {
         mServiceActive = false;
         Context context = getBaseContext();
-        context.unregisterReceiver(unlockReceiver);
+        context.unregisterReceiver(mBroadcastReceiver);
         Log.d(TAG, "Service Stopped.");
     }
 
@@ -133,17 +133,20 @@ public class QuietUnlockService extends AbstractService {
     }
 
     private void doLockScreen(Activity activity) {
-        if (!devicePolicyManager.isAdminActive(adminComponent)) {
-            Log.i(TAG, "Initializing Lock Perms");
-            Intent intent = new Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN);
-            intent.putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComponent);
-            activity.startActivityForResult(intent, REQUEST_CODE_ENABLE_ADMIN);
-            //Toast.makeText(getBaseContext(), "Initializing Lock Perms", Toast.LENGTH_SHORT).show();
-            stopService(true);
-        }else{
-            Log.d(TAG, "Doing LockScreen");
-            devicePolicyManager.lockNow();
-            mServiceActive = true;
+        if (null != mDevicePolicyManager) {
+            if (mDevicePolicyManager.isAdminActive(mAdminComponent)) {
+                Log.d(TAG, "Doing LockScreen");
+                mDevicePolicyManager.lockNow();
+                mServiceActive = true;
+            } else {
+                Log.i(TAG, "Initializing Lock Perms");
+                Intent intent = new Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN);
+                intent.putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, mAdminComponent);
+                activity.startActivityForResult(intent, REQUEST_CODE_ENABLE_ADMIN);
+                stopService(true);
+            }
+        } else {
+            Log.e(TAG, "Problem accessing getting DevicePolicyManager");
         }
     }
 
@@ -157,11 +160,16 @@ public class QuietUnlockService extends AbstractService {
 
     private void setRinger(int ringMode) {
         Log.d(TAG, "Setting Ringer");
+        if(RING_SILENT == ringMode) {
+            mIsSilent = true;
+        } else {
+            mIsSilent = false;
+        }
         ((AudioManager)getSystemService(Context.AUDIO_SERVICE)).setRingerMode(ringMode);
     }
 
     private void stopService(boolean restoreRingMode) {
-        if(restoreRingMode) {
+        if (restoreRingMode) {
             Log.i(TAG, "Restoring Ringer");
             setRinger(mRestoreRingerMode);
         }
@@ -169,6 +177,4 @@ public class QuietUnlockService extends AbstractService {
         mServiceActive = false;
         stopSelf();
     }
-
-
 }
