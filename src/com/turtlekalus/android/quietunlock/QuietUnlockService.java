@@ -6,12 +6,18 @@
  *     in Activity Class (check box in dialog window)
  *   Listen for OK/Cancel messages from Activity and
  *     behave appropriately
- *   Listen for Device Unlock (USER_PRESENT) action
- *     - User Unlocked Device
+ *   Listen for Screen Activity
+ *     - If the Lock Screen is Disabled
+ *     * Restore Ringer and Exit Service
+ *   Listen for Device Unlock
+ *     - If the User Unlocks Device
+ *     * Restore Ringer and Exit Service
+ *   Deal with Telephony creating unlock-false-positives
+ *     - If the device has been unlocked for more than 10 seconds
  *     * Restore Ringer and Exit Service
  *   Listen for RINGER_MODE_CHANGED
  *     - User (or another entity) changed Ringer Mode while device
- *       was still locked (E.G. Volume Keys while viewing Lock Screen).
+ *       was still locked (E.G. Volume Keys while viewing Lock Screen)
  *     * Exit Service w/out Restoring Ringer
  *
  * Author: Turtle Kalus (turtlekalus.com)
@@ -19,9 +25,6 @@
  *
  *   TODO:
  *     Only flip to Vibe/Silent _after_ OK is pressed.
- *     Remove requirement for DeviceAdmin. In its absense,
- *       we should listen/wait for Device Lock/Screen Off
- *       with a short timeout.
  */
 
 package com.turtlekalus.android.quietunlock;
@@ -45,33 +48,40 @@ import android.os.Messenger;
 import android.telephony.TelephonyManager;
 import android.util.Log;
 import android.widget.Toast;
+import java.lang.Runnable;
 import com.philippheckel.service.AbstractService;
 
 public class QuietUnlockService extends AbstractService {
-    private static final String TAG = "QuietUnlockService";
+    public  static final int     MSG_INIT     = 1;
+    public  static final int     MSG_SET_RING = 2;
+    public  static final int     MSG_LOCK     = 3;
+    public  static final int     MSG_CANCEL   = 4;
+    public  static final int     RING_NORMAL  = AudioManager.RINGER_MODE_NORMAL;
+    public  static final int     RING_SILENT  = AudioManager.RINGER_MODE_SILENT;
+    public  static final int     RING_VIBRATE = AudioManager.RINGER_MODE_VIBRATE;
+    public  static final int     REQUEST_CODE_ENABLE_ADMIN = 1;
 
-    private static DevicePolicyManager mDevicePolicyManager = null;
+    private static final String  TAG = "QuietUnlockService";
+    private static final boolean START_SILENT = false;
+    private static final int     TELEPHONE_DELAY = 10; // Seconds
+
+
+    public  static boolean mIsSilent           = START_SILENT;
+    private static int     mRestoreRingerMode  = START_SILENT ? RING_SILENT : RING_VIBRATE;
+    private static boolean mServiceActive      = false;
+    private static boolean mTelephoneWasActive = false;
+
     private static ComponentName mAdminComponent = null;
+    private static DevicePolicyManager mDevicePolicyManager = null;
 
-    public static final int REQUEST_CODE_ENABLE_ADMIN = 1;
-
-    public static final int RING_NORMAL  = AudioManager.RINGER_MODE_NORMAL;
-    public static final int RING_SILENT  = AudioManager.RINGER_MODE_SILENT;
-    public static final int RING_VIBRATE = AudioManager.RINGER_MODE_VIBRATE;
-
-    public static final int MSG_INIT     = 1;
-    public static final int MSG_SET_RING = 2;
-    public static final int MSG_LOCK     = 3;
-    public static final int MSG_CANCEL   = 4;
-
-	private static final boolean mStartSilent = false;
-	public static boolean mIsSilent = mStartSilent;
-
-	private BroadcastReceiver mBroadcastReceiver;
-	private IntentFilter mIntentFilter;
-
-	private static boolean mServiceActive;
-    private static int     mRestoreRingerMode;
+    private BroadcastReceiver mBroadcastReceiver;
+    private IntentFilter mIntentFilter = new IntentFilter();
+    private Handler mHandler = new Handler();
+    private Runnable mRunRestoreRinger = new Runnable() {
+        public void run() {
+            handleRestoreRinger();
+        }
+    };
 
     @Override 
     public void onStartService() {
@@ -85,31 +95,24 @@ public class QuietUnlockService extends AbstractService {
             @Override
             public void onReceive(Context context, Intent intent) {
                 if(Intent.ACTION_SCREEN_OFF.equals(intent.getAction())) {
+                    Log.i(TAG, "ACTION_SCREEN_OFF: Service Active");
                     // Screen Off Action activates service, always.
-                    if (!mServiceActive) {
-                        Log.i(TAG, "ACTION_SCREEN_OFF: Service Active");
-                        mServiceActive = true;
-                    }
+                    mServiceActive = true;
+                    // Set "WasActive" to false and remove Runnable. We'll
+                    // start things again when the screen comes back on.
+                    mTelephoneWasActive = false;
+                    mHandler.removeCallbacks(mRunRestoreRinger);
                     return;
                 } else if(Intent.ACTION_SCREEN_ON.equals(intent.getAction())) {
-                    // If the Screen is turned on, and the KeyGuard is not
-                    // active, we will never recieve the ACTION_USER_PRESENT
-                    // Intent; stop the Service, with the restoreRingMode = true
                     if (mServiceActive) {
-                        if ((!isTelephoneActive()) && (!isKeyguardLocked(true))) {
-                            Log.i(TAG, "ACTION_SCREEN_ON: Lock Disabled, Restoring Ringer");
-                            stopService(true);
-                        }
+                        Log.d(TAG, "ACTION_SCREEN_ON");
+                        handleRestoreRinger();
                     }
                     return;
                 } else if(Intent.ACTION_USER_PRESENT.equals(intent.getAction())) {
-                    // Handle User Unlocking Device; stop the Service, with
-                    // the restoreRingMode = true
                     if (mServiceActive) {
-                        if (!isTelephoneActive()) {
-                            Log.i(TAG, "ACTION_USER_PRESENT: Restore Ringer");
-                            stopService(true);
-                        }
+                        Log.d(TAG, "ACTION_USER_PRESENT");
+                        handleRestoreRinger();
                     }
                     return;
                 } else if(AudioManager.RINGER_MODE_CHANGED_ACTION.equals(intent.getAction())) {
@@ -124,7 +127,6 @@ public class QuietUnlockService extends AbstractService {
             }
         };
 
-        mIntentFilter = new IntentFilter();
 
         mIntentFilter.addAction(Intent.ACTION_SCREEN_OFF);
         mIntentFilter.addAction(Intent.ACTION_SCREEN_ON);
@@ -134,7 +136,7 @@ public class QuietUnlockService extends AbstractService {
         mIntentFilter.addAction(AudioManager.RINGER_MODE_CHANGED_ACTION);
         registerReceiver(mBroadcastReceiver, mIntentFilter);
 
-        setRinger(mStartSilent ? RING_SILENT : RING_VIBRATE);
+        setRinger(START_SILENT ? RING_SILENT : RING_VIBRATE);
         Log.d(TAG, "Service Started.");
     }
 
@@ -159,6 +161,38 @@ public class QuietUnlockService extends AbstractService {
                 stopService(true);
                 break;
         }
+    }
+
+    private void handleRestoreRinger() {
+        // If the service is no longer active, return
+        if (!mServiceActive) return;
+
+        // We do not want to restore ringer if Telephone is active.
+        // Instead, we will spin up an Handler to check every n seconds
+        // for telephone activity. Screen Off will remove Alarm.
+        if (!isTelephoneActive()) {
+            if(!mTelephoneWasActive) {
+                if (!isKeyguardLocked(true)) {
+                    // Only Stop Service and Unlock if Keyguard isn't active.
+                    stopService(true);
+                    return;
+                } else {
+                    Log.d(TAG, "Keyguard Locked; keep going");
+                    return;
+                }
+            }
+            // Telephone was active, but is no longer...
+            mTelephoneWasActive = false;
+        } else {
+            // If Telephone was Active w/in last n seconds, requeue
+            // one more time.
+            mTelephoneWasActive = true;
+        }
+        Log.i(TAG, "Telephone Activity; checking in " + Integer.toString(TELEPHONE_DELAY)
+                + " secs; (wasActive " + Boolean.toString(mTelephoneWasActive) + ")");
+        // On have one Runner queue'd at a time
+        mHandler.removeCallbacks(mRunRestoreRinger);
+        mHandler.postDelayed(mRunRestoreRinger, (TELEPHONE_DELAY * 1000));
     }
 
     private boolean isKeyguardLocked(boolean includeSlide) {
@@ -223,6 +257,7 @@ public class QuietUnlockService extends AbstractService {
             setRinger(mRestoreRingerMode);
         }
         Log.d(TAG, "Stopping Service");
+        mHandler.removeCallbacks(mRunRestoreRinger);
         mServiceActive = false;
         stopSelf();
     }
