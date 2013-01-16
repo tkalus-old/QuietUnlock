@@ -47,6 +47,7 @@ public class QuietUnlock extends Activity
     private final static int SELECT_SILENT  = 0;
     private final static int SELECT_VIBRATE = 1;
 
+    private static boolean mActivityFinished;
     private static int mRestoreRingerMode;
     private ServiceManager mServiceManager;
 
@@ -59,8 +60,7 @@ public class QuietUnlock extends Activity
         super.onCreate(savedInstanceState);
         this.requestWindowFeature(Window.FEATURE_NO_TITLE);
         setContentView(R.layout.main);
-        // Get default Silent/Vibe setting from Service
-        // TODO Should be user-config'able
+        mActivityFinished = false;
         // Start Service Manager for QuietUnlockService
         this.mServiceManager = new ServiceManager(this, QuietUnlockService.class, new Handler() {
             @Override
@@ -87,7 +87,9 @@ public class QuietUnlock extends Activity
     @Override
     public void onPause() {
         super.onPause();
-        doCancel();
+        if(!mActivityFinished) {
+            doCancel();
+        }
     }
 
     protected void doUpdateSilentVibe(int which) {
@@ -111,6 +113,7 @@ public class QuietUnlock extends Activity
     public void doOK() {
         Log.d(TAG,"Sending Lock");
         sendMessageToService(QuietUnlockService.MSG_LOCK, 0, 0);
+        mActivityFinished = true;
         this.onDestroy();
         this.finish();
     }
@@ -120,6 +123,7 @@ public class QuietUnlock extends Activity
     public void doCancel() {
         Log.d(TAG, "Sending Cancel");
         sendMessageToService(QuietUnlockService.MSG_CANCEL, 0, 0);
+        mActivityFinished = true;
         this.onDestroy();
         this.finish();
     }
@@ -141,6 +145,8 @@ public class QuietUnlock extends Activity
         CharSequence[] items = {"",""};
         items[SELECT_SILENT] = this.getString(R.string.select_silent);
         items[SELECT_VIBRATE] = this.getString(R.string.select_vibrate);
+        // Get current Silent/Vibe setting from Service
+        // TODO Should be user-config'able
         int checkedItem = QuietUnlockService.mIsSilent ? SELECT_SILENT : SELECT_VIBRATE;
         AlertDialog.Builder alertDialogBuilder;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.ICE_CREAM_SANDWICH) {
