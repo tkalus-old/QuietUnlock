@@ -27,6 +27,7 @@
 package com.turtlekalus.android.quietunlock;
 
 import android.app.Activity;
+import android.app.KeyguardManager;
 import android.app.Service;
 import android.app.admin.DeviceAdminReceiver;
 import android.app.admin.DevicePolicyManager;
@@ -41,6 +42,7 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Message;
 import android.os.Messenger;
+import android.telephony.TelephonyManager;
 import android.util.Log;
 import android.widget.Toast;
 import com.philippheckel.service.AbstractService;
@@ -89,12 +91,25 @@ public class QuietUnlockService extends AbstractService {
                         mServiceActive = true;
                     }
                     return;
+                } else if(Intent.ACTION_SCREEN_ON.equals(intent.getAction())) {
+                    // If the Screen is turned on, and the KeyGuard is not
+                    // active, we will never recieve the ACTION_USER_PRESENT
+                    // Intent; stop the Service, with the restoreRingMode = true
+                    if (mServiceActive) {
+                        if ((!isTelephoneActive()) && (!isKeyguardLocked(true))) {
+                            Log.i(TAG, "ACTION_SCREEN_ON: Lock Disabled, Restoring Ringer");
+                            stopService(true);
+                        }
+                    }
+                    return;
                 } else if(Intent.ACTION_USER_PRESENT.equals(intent.getAction())) {
                     // Handle User Unlocking Device; stop the Service, with
                     // the restoreRingMode = true
                     if (mServiceActive) {
-                        Log.i(TAG, "ACTION_USER_PRESENT: Restore Ringer");
-                        stopService(true);
+                        if (!isTelephoneActive()) {
+                            Log.i(TAG, "ACTION_USER_PRESENT: Restore Ringer");
+                            stopService(true);
+                        }
                     }
                     return;
                 } else if(AudioManager.RINGER_MODE_CHANGED_ACTION.equals(intent.getAction())) {
@@ -112,6 +127,7 @@ public class QuietUnlockService extends AbstractService {
         mIntentFilter = new IntentFilter();
 
         mIntentFilter.addAction(Intent.ACTION_SCREEN_OFF);
+        mIntentFilter.addAction(Intent.ACTION_SCREEN_ON);
         mIntentFilter.addAction(Intent.ACTION_USER_PRESENT); // Device Unlock
         // This Intent is Broadcast when the Ringer Mode changes
         // Want to catch case where user changes Ringer Mode from Lock Screen
@@ -143,6 +159,21 @@ public class QuietUnlockService extends AbstractService {
                 stopService(true);
                 break;
         }
+    }
+
+    private boolean isKeyguardLocked(boolean includeSlide) {
+        // isKeyguardSecure() excludes "Slide" Lock
+        KeyguardManager kgm = (KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
+        if (includeSlide) {
+            return (null != kgm) && kgm.isKeyguardLocked();
+        } else {
+            return (null != kgm) && kgm.isKeyguardLocked() && kgm.isKeyguardSecure();
+        }
+    }
+
+    private boolean isTelephoneActive() {
+        TelephonyManager tm = (TelephonyManager) getSystemService(Context.TELEPHONY_SERVICE);
+        return (null != tm) && (TelephonyManager.CALL_STATE_IDLE != tm.getCallState());
     }
 
     private void doLockScreen(Activity activity) {
