@@ -82,23 +82,36 @@ public class QuietUnlockService extends AbstractService {
         mBroadcastReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
-                // Handle User Unlocking Device
-                if(Intent.ACTION_USER_PRESENT.equals(intent.getAction())) {
-                    Log.i(TAG, "ACTION_USER_PRESENT: Restore Ringer");
-                    stopService(true);
-                // Handle User possibly-changing Ringer Mode from Lock Screen
-                // using Vol Keys
+                if(Intent.ACTION_SCREEN_OFF.equals(intent.getAction())) {
+                    // Screen Off Action activates service, always.
+                    if (!mServiceActive) {
+                        Log.i(TAG, "ACTION_SCREEN_OFF: Service Active");
+                        mServiceActive = true;
+                    }
+                    return;
+                } else if(Intent.ACTION_USER_PRESENT.equals(intent.getAction())) {
+                    // Handle User Unlocking Device; stop the Service, with
+                    // the restoreRingMode = true
+                    if (mServiceActive) {
+                        Log.i(TAG, "ACTION_USER_PRESENT: Restore Ringer");
+                        stopService(true);
+                    }
+                    return;
                 } else if(AudioManager.RINGER_MODE_CHANGED_ACTION.equals(intent.getAction())) {
+                    // Handle User possibly-changing Ringer Mode from Lock Screen
+                    // using Vol Keys
                     if(mServiceActive) {
                         Log.i(TAG, "RINGER_MODE_CHANGED_ACTION: Dropping Service");
                         stopService(false);
                     }
+                    return;
                 }
             }
         };
 
         mIntentFilter = new IntentFilter();
-        // This Intent is Broadcast when a User Unlocks their device
+
+        mIntentFilter.addAction(Intent.ACTION_SCREEN_OFF);
         mIntentFilter.addAction(Intent.ACTION_USER_PRESENT); // Device Unlock
         // This Intent is Broadcast when the Ringer Mode changes
         // Want to catch case where user changes Ringer Mode from Lock Screen
@@ -137,13 +150,18 @@ public class QuietUnlockService extends AbstractService {
             if (mDevicePolicyManager.isAdminActive(mAdminComponent)) {
                 Log.d(TAG, "Doing LockScreen");
                 mDevicePolicyManager.lockNow();
-                mServiceActive = true;
             } else {
+                /* TODO this should be run once, the first time
+                 * to give the user an option of granting perms.
+                 * Remembered in non-exposed prefs and an option
+                 * to {en,dis}able from the Settings Menu
                 Log.i(TAG, "Initializing Lock Perms");
                 Intent intent = new Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN);
                 intent.putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, mAdminComponent);
                 activity.startActivityForResult(intent, REQUEST_CODE_ENABLE_ADMIN);
                 stopService(true);
+                */
+                Toast.makeText(getBaseContext(), R.string.toast_active, Toast.LENGTH_SHORT).show();
             }
         } else {
             Log.e(TAG, "Problem accessing getting DevicePolicyManager");

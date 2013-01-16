@@ -5,5 +5,5 @@
     <string name="alert_dialog_cancel">Cancel</string>
     <string name="select_silent">Silent</string>
     <string name="select_vibrate">Vibrate</string>
-    <string name="show">Show</string>
+    <string name="toast_active">Quiet Unlock Active</string>
 </resources>
